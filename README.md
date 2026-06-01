@@ -2,6 +2,23 @@
 
 Tellity is a modular Telegram bot platform focused on productivity, utility tooling, file operations, community engagement, and automation.
 
+## Current Implementation Highlights
+
+- SQLite-backed persistence (`data/tellity.db`) for user tasks, habits, countdowns, timers, stopwatches, rules, links, feedback, and analytics.
+- Modular command plugin engine (`/tmp/workspace/RayBen445/Tellity/src/command-plugins.ts`) with centralized routing.
+- Built-in command execution logging, per-command analytics, and rate limiting.
+- Role-aware command gates for admin-only features such as `/stats`, `/backup`, `/invite`, and `/admins`.
+- Utility endpoints:
+  - `/api/qr` for QR image generation
+  - `/api/barcode` for barcode image generation
+  - `/api/color-preview` for color previews
+  - `/api/backup` for JSON backup exports
+  - `/s/:alias` for short-link redirects with click tracking
+- Frontend `App.tsx` now split with reusable modules in:
+  - `/tmp/workspace/RayBen445/Tellity/src/utils`
+  - `/tmp/workspace/RayBen445/Tellity/src/commands`
+  - `/tmp/workspace/RayBen445/Tellity/src/components`
+
 ## Vision
 
 Build a production-ready Telegram bot with:
