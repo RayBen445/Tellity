@@ -13,7 +13,11 @@ export default function SectionTitle({ icon, title, subtitle }: Props) {
         {icon}
         <h2 className="font-semibold text-sm tracking-wide text-gray-200">{title}</h2>
       </div>
-      {subtitle ? <span className="text-xs text-gray-500">{subtitle}</span> : null}
+      {subtitle ? (
+        <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-gray-400">
+          {subtitle}
+        </span>
+      ) : null}
     </div>
   );
 }

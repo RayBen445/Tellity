@@ -158,6 +158,44 @@ CREATE TABLE IF NOT EXISTS schedules (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS quizzes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id INTEGER NOT NULL,
+  question TEXT NOT NULL,
+  options_json TEXT NOT NULL,
+  answer_index INTEGER NOT NULL,
+  created_by INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS quiz_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  quiz_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  selected_index INTEGER NOT NULL,
+  is_correct INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS giveaways (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  winner_count INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS giveaway_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  giveaway_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(giveaway_id, user_id)
+);
 `);
 
 export function upsertUsage(command: string): void {
@@ -210,7 +248,8 @@ export function getDbSnapshot(): Record<string, unknown> {
   const tableNames = [
     'user_roles', 'command_logs', 'command_usage', 'todos', 'habits', 'habit_checkins',
     'countdowns', 'timers', 'stopwatches', 'short_links', 'votes', 'vote_entries',
-    'suggestions', 'feedback', 'automation_rules', 'schedules'
+    'suggestions', 'feedback', 'automation_rules', 'schedules', 'quizzes', 'quiz_entries',
+    'giveaways', 'giveaway_entries'
   ];
 
   const snapshot: Record<string, unknown> = {};

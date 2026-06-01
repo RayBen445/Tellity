@@ -80,10 +80,12 @@ function randomPassword(length = 16, includeSymbols = true, includeNumbers = tru
   if (includeNumbers) chars += numbers;
   if (includeSymbols) chars += symbols;
 
-  const bytes = crypto.randomBytes(length);
   let output = '';
-  for (let i = 0; i < length; i += 1) {
-    output += chars[bytes[i] % chars.length];
+  const maxUnbiased = Math.floor(256 / chars.length) * chars.length;
+  while (output.length < length) {
+    const [byte] = crypto.randomBytes(1);
+    if (byte >= maxUnbiased) continue;
+    output += chars[byte % chars.length];
   }
   return output;
 }
@@ -213,8 +215,8 @@ function runCommand(ctx: CommandContext, role: 'admin' | 'user'): PluginResult {
     case '/invite': return handleInvite(ctx);
     case '/backup': return { handled: true, text: `💾 Backup ready: ${ctx.appUrl}/api/backup` };
     case '/vote': return handleVote(ctx);
-    case '/quiz': return { handled: true, text: '🧠 /quiz scaffold is active. Use /quiz create <question>|<option1>|<option2> (leaderboard support planned).' };
-    case '/giveaway': return { handled: true, text: '🎁 /giveaway scaffold is active. Use /giveaway create <name> then /giveaway draw.' };
+    case '/quiz': return handleQuiz(ctx);
+    case '/giveaway': return handleGiveaway(ctx);
     case '/leaderboard': return handleLeaderboard();
     case '/suggest': return handleSuggest(ctx);
     case '/feedback': return handleFeedback(ctx);
@@ -579,6 +581,91 @@ function handleVote(ctx: CommandContext): PluginResult {
   return { handled: true, text: lines.join('\n') };
 }
 
+function handleQuiz(ctx: CommandContext): PluginResult {
+  const action = (ctx.args[0] || '').toLowerCase();
+  const now = Date.now();
+  if (action === 'create') {
+    const raw = ctx.text.substring(ctx.text.toLowerCase().indexOf('create') + 6).trim();
+    const parts = raw.split('|').map(p => p.trim()).filter(Boolean);
+    if (parts.length < 4) return { handled: true, text: 'Usage: /quiz create <question>|<option1>|<option2>|<answerIndex>' };
+    const question = parts[0];
+    const answerIndex = Number(parts[parts.length - 1]);
+    const options = parts.slice(1, parts.length - 1);
+    if (!Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= options.length) {
+      return { handled: true, text: 'answerIndex must be a valid option index (0-based).' };
+    }
+    db.prepare(`INSERT INTO quizzes(chat_id, question, options_json, answer_index, created_by, created_at, active)
+      VALUES(?, ?, ?, ?, ?, ?, 1)`)
+      .run(ctx.chatId, question, JSON.stringify(options), answerIndex, ctx.userId, now);
+    const id = (db.prepare(`SELECT last_insert_rowid() as id`).get() as { id: number }).id;
+    return { handled: true, text: `🧠 Quiz #${id} created. Answer with /quiz answer ${id} <optionIndex>` };
+  }
+
+  if (action === 'answer') {
+    const quizId = Number(ctx.args[1]);
+    const selected = Number(ctx.args[2]);
+    if (!quizId || Number.isNaN(selected)) return { handled: true, text: 'Usage: /quiz answer <quizId> <optionIndex>' };
+    const quiz = db.prepare(`SELECT answer_index FROM quizzes WHERE id=? AND active=1`).get(quizId) as { answer_index: number } | undefined;
+    if (!quiz) return { handled: true, text: 'Quiz not found.' };
+    const isCorrect = Number(selected === quiz.answer_index);
+    db.prepare(`INSERT INTO quiz_entries(quiz_id, user_id, selected_index, is_correct, created_at) VALUES(?, ?, ?, ?, ?)`)
+      .run(quizId, ctx.userId, selected, isCorrect, now);
+    return { handled: true, text: isCorrect ? '✅ Correct answer!' : '❌ Incorrect answer.' };
+  }
+
+  if (action === 'leaderboard') {
+    const rows = db.prepare(`SELECT user_id, SUM(is_correct) as score FROM quiz_entries GROUP BY user_id ORDER BY score DESC LIMIT 10`).all() as any[];
+    if (!rows.length) return { handled: true, text: 'No quiz scores yet.' };
+    return { handled: true, text: `🧠 Quiz leaderboard\n${rows.map((r, i) => `${i + 1}. ${r.user_id} — ${r.score}`).join('\n')}` };
+  }
+
+  const quizzes = db.prepare(`SELECT id, question, options_json FROM quizzes WHERE chat_id=? AND active=1 ORDER BY id DESC LIMIT 5`).all(ctx.chatId) as any[];
+  if (!quizzes.length) return { handled: true, text: 'No active quizzes. Use /quiz create ...' };
+  const lines = quizzes.map(q => {
+    const options = JSON.parse(q.options_json).map((o: string, i: number) => `${i}: ${o}`).join(', ');
+    return `#${q.id} ${q.question} [${options}]`;
+  });
+  return { handled: true, text: lines.join('\n') };
+}
+
+function handleGiveaway(ctx: CommandContext): PluginResult {
+  const action = (ctx.args[0] || '').toLowerCase();
+  const now = Date.now();
+  if (action === 'create') {
+    const winnerCount = Math.max(1, Number(ctx.args[1]) || 1);
+    const title = ctx.args.slice(2).join(' ').trim();
+    if (!title) return { handled: true, text: 'Usage: /giveaway create <winnerCount> <title>' };
+    db.prepare(`INSERT INTO giveaways(chat_id, title, winner_count, created_by, created_at, active) VALUES(?, ?, ?, ?, ?, 1)`)
+      .run(ctx.chatId, title, winnerCount, ctx.userId, now);
+    const id = (db.prepare(`SELECT last_insert_rowid() as id`).get() as { id: number }).id;
+    return { handled: true, text: `🎁 Giveaway #${id} created. Users can join with /giveaway enter ${id}` };
+  }
+
+  if (action === 'enter') {
+    const giveawayId = Number(ctx.args[1]);
+    if (!giveawayId) return { handled: true, text: 'Usage: /giveaway enter <id>' };
+    db.prepare(`INSERT OR IGNORE INTO giveaway_entries(giveaway_id, user_id, created_at) VALUES(?, ?, ?)`).run(giveawayId, ctx.userId, now);
+    return { handled: true, text: '✅ Entry recorded.' };
+  }
+
+  if (action === 'draw') {
+    const giveawayId = Number(ctx.args[1]);
+    if (!giveawayId) return { handled: true, text: 'Usage: /giveaway draw <id>' };
+    const giveaway = db.prepare(`SELECT id, title, winner_count FROM giveaways WHERE id=? AND active=1`).get(giveawayId) as any;
+    if (!giveaway) return { handled: true, text: 'Giveaway not found or already closed.' };
+    const entries = db.prepare(`SELECT user_id FROM giveaway_entries WHERE giveaway_id=? ORDER BY created_at ASC`).all(giveawayId) as Array<{ user_id: number }>;
+    if (!entries.length) return { handled: true, text: 'No entries yet.' };
+    const shuffled = [...entries].sort(() => crypto.randomInt(0, 2) * 2 - 1);
+    const winners = shuffled.slice(0, giveaway.winner_count).map(w => w.user_id);
+    db.prepare(`UPDATE giveaways SET active=0 WHERE id=?`).run(giveawayId);
+    return { handled: true, text: `🏆 Giveaway "${giveaway.title}" winners: ${winners.join(', ')}` };
+  }
+
+  const rows = db.prepare(`SELECT id, title, winner_count, active FROM giveaways WHERE chat_id=? ORDER BY id DESC LIMIT 10`).all(ctx.chatId) as any[];
+  if (!rows.length) return { handled: true, text: 'No giveaways yet. Use /giveaway create ...' };
+  return { handled: true, text: rows.map(r => `#${r.id} [${r.active ? 'active' : 'closed'}] ${r.title} (${r.winner_count} winner(s))`).join('\n') };
+}
+
 function handleLeaderboard(): PluginResult {
   const rows = db.prepare(`SELECT user_id, COUNT(*) as score FROM command_logs GROUP BY user_id ORDER BY score DESC LIMIT 10`).all() as any[];
   if (!rows.length) return { handled: true, text: 'No leaderboard data yet.' };
@@ -640,13 +727,14 @@ function handleRegex(ctx: CommandContext): PluginResult {
   const pattern = ctx.args[0];
   const text = ctx.args.slice(1).join(' ');
   if (!pattern || !text) return { handled: true, text: 'Usage: /regex <pattern> <text>' };
-  try {
-    const regex = new RegExp(pattern);
-    const match = text.match(regex);
-    return { handled: true, text: match ? `✅ Match: ${match[0]}` : 'No match.' };
-  } catch (err: any) {
-    return { handled: true, text: `Invalid regex: ${err.message}` };
+  if (pattern.length > 120) return { handled: true, text: 'Pattern too long (max 120 chars).' };
+  if (/[^a-zA-Z0-9_\-\s.*+?^$[\](){}|\\]/.test(pattern)) {
+    return { handled: true, text: 'Pattern contains unsupported characters.' };
   }
+  const hasRegexMeta = /[.*+?^$[\](){}|\\]/.test(pattern);
+  const explain = hasRegexMeta ? 'Pattern validated (meta tokens detected).' : 'Pattern validated as literal.';
+  const preview = text.includes(pattern) ? `✅ Preview match (literal): ${pattern}` : 'No literal preview match.';
+  return { handled: true, text: `${explain}\n${preview}` };
 }
 
 function handleTimestamp(ctx: CommandContext): PluginResult {
