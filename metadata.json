@@ -1,0 +1,6 @@
+{
+  "name": "Telegram Bot Hub",
+  "description": "An interactive dashboard to connect, configure, and live-test Telegram Bots. Supports testing the /start command, setting custom handlers, and viewing incoming webhooks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
