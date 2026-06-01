@@ -38,6 +38,9 @@ import {
   FileText
 } from 'lucide-react';
 import { BotConfig, BotCommandConfig, MessageLog } from './types';
+import { EMPTY_COMMAND, DEFAULT_SIM_USER } from './commands/defaults';
+import { formatTime, getFontClass, type FontOption } from './utils/app-utils';
+import SectionTitle from './components/SectionTitle';
 
 export default function App() {
   // Primary configuration state
@@ -65,21 +68,12 @@ export default function App() {
 
   // Command Editing state
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [tempCommand, setTempCommand] = useState<BotCommandConfig>({
-    command: '',
-    description: '',
-    responseTemplate: ''
-  });
+  const [tempCommand, setTempCommand] = useState<BotCommandConfig>(EMPTY_COMMAND);
   const [showAddCommandForm, setShowAddCommandForm] = useState(false);
 
   // Simulator Input Form state
   const [simText, setSimText] = useState('/start');
-  const [simUser, setSimUser] = useState({
-    username: 'tele_tester',
-    firstName: 'Alex',
-    lastName: 'Studio',
-    chatId: 98765432
-  });
+  const [simUser, setSimUser] = useState(DEFAULT_SIM_USER);
 
   // Manual Dispatch state
   const [manualReply, setManualReply] = useState({
@@ -91,7 +85,7 @@ export default function App() {
   });
 
   // Premium UI style state: Custom Font pairing
-  const [selectedFont, setSelectedFont] = useState<'sans' | 'space' | 'outfit' | 'playfair' | 'mono'>('sans');
+  const [selectedFont, setSelectedFont] = useState<FontOption>('sans');
 
   // Notepad states
   const [notepadContent, setNotepadContent] = useState('');
@@ -477,7 +471,7 @@ export default function App() {
     setBotConfig(p => ({ ...p, commands: updatedList }));
     setEditingIndex(null);
     setShowAddCommandForm(false);
-    setTempCommand({ command: '', description: '', responseTemplate: '' });
+    setTempCommand(EMPTY_COMMAND);
 
     // Sync edited commands with backend
     setTimeout(async () => {
@@ -581,11 +575,6 @@ export default function App() {
     }
   };
 
-  // Formatting timestamp
-  const formatTime = (ts: number): string => {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
-
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setIsCopying(true);
@@ -593,7 +582,7 @@ export default function App() {
   };
 
   return (
-    <div className={`min-h-screen bg-[#090b0e] text-gray-100 flex flex-col ${selectedFont === 'sans' ? 'font-sans' : selectedFont === 'space' ? 'font-space' : selectedFont === 'outfit' ? 'font-outfit' : selectedFont === 'playfair' ? 'font-playfair' : 'font-mono'} transition-all duration-300`}>
+    <div className={`min-h-screen bg-[#090b0e] text-gray-100 flex flex-col ${getFontClass(selectedFont)} transition-all duration-300`}>
       
       {/* 🚀 ELITE HEADER BAR */}
       <header className="border-b border-[#1b2230] bg-[#0c0f16]/95 backdrop-blur-md sticky top-0 z-40 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -653,13 +642,11 @@ export default function App() {
           
           {/* BOT IDENTITY & INTEGRATION MANAGER */}
           <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40">
-            <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Settings className="w-4 h-4 text-indigo-400" />
-                <h2 className="font-semibold text-sm tracking-wide text-gray-200">Bot Credentials</h2>
-              </div>
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-gray-400">SECURE SHELL</span>
-            </div>
+            <SectionTitle
+              icon={<Settings className="w-4 h-4 text-indigo-400" />}
+              title="Bot Credentials"
+              subtitle="SECURE SHELL"
+            />
 
             <div className="p-5 flex flex-col gap-4">
               <div>
@@ -1012,7 +999,7 @@ export default function App() {
               <button
                 onClick={() => {
                   setEditingIndex(null);
-                  setTempCommand({ command: '', description: '', responseTemplate: '' });
+                  setTempCommand(EMPTY_COMMAND);
                   setShowAddCommandForm(true);
                 }}
                 className="px-2.5 py-1.5 hover:bg-violet-950/40 hover:border-violet-700 bg-violet-650/10 border border-violet-850/50 rounded-xl text-[11px] font-semibold text-violet-300 transition flex items-center gap-1"

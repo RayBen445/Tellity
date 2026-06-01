@@ -5,6 +5,9 @@ import { createServer as createViteServer } from 'vite';
 import { BotConfig, BotCommandConfig, MessageLog } from './src/types.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as mathguru from 'mathguru';
+import bwipjs from 'bwip-js';
+import QRCode from 'qrcode';
+import { handlePluginCommand, buildAnalyticsSummary, buildBackupPayload, recordShortLinkClick } from './src/command-plugins.js';
 
 // Setup basic environment variables support
 import 'dotenv/config';
@@ -617,6 +620,42 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
 
   // Custom behavior overrides for commands with parameters
   const lowerText = userText.toLowerCase();
+
+  const pluginResult = await handlePluginCommand({
+    text: userText,
+    chatId,
+    userId: fromUser.id || chatId,
+    firstName: fromUser.first_name || fromUser.firstName,
+    username: fromUser.username,
+    appUrl: process.env.APP_URL || `http://localhost:${PORT}`
+  });
+
+  if (pluginResult.handled) {
+    const pluginReply = pluginResult.text || '✅ Done.';
+    addLog(
+      'outgoing',
+      chatId,
+      { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
+      pluginReply,
+      `Replying with modular plugin command handler${isSimulated ? ' (Simulated)' : ''}`
+    );
+
+    if (!isSimulated && botToken) {
+      try {
+        await callTelegramAPI('sendMessage', {
+          chat_id: chatId,
+          text: pluginReply,
+          parse_mode: pluginResult.markdown ? 'Markdown' : undefined,
+          reply_markup: getCommonInlineKeyboard()
+        });
+      } catch (err: any) {
+        if (messageLogs.length > 0) {
+          messageLogs[0].status = `Error sending plugin response: ${err.message}`;
+        }
+      }
+    }
+    return;
+  }
 
   if (lowerText.startsWith('/settings ') || lowerText.startsWith('/settings@') || lowerText === '/settings') {
     const parts = userText.split(/\s+/);
@@ -2160,6 +2199,75 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
 }
 
 // --- API ENDPOINTS ---
+
+app.get('/s/:alias', (req, res) => {
+  const targetUrl = recordShortLinkClick(req.params.alias);
+  if (!targetUrl) {
+    return res.status(404).send('Alias not found');
+  }
+  return res.redirect(targetUrl);
+});
+
+app.get('/api/qr', async (req, res) => {
+  const text = String(req.query.text || '').trim();
+  if (!text) {
+    return res.status(400).json({ success: false, error: 'text query parameter is required' });
+  }
+  try {
+    const png = await QRCode.toBuffer(text, { type: 'png', width: 400, margin: 1 });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', 'inline; filename=\"qr.png\"');
+    return res.status(200).send(png);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/barcode', async (req, res) => {
+  const text = String(req.query.text || '').trim();
+  const format = String(req.query.format || 'code128').trim();
+  if (!text) {
+    return res.status(400).json({ success: false, error: 'text query parameter is required' });
+  }
+  try {
+    const png = await bwipjs.toBuffer({
+      bcid: format,
+      text,
+      scale: 3,
+      height: 12,
+      includetext: true,
+      textxalign: 'center'
+    });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', 'inline; filename=\"barcode.png\"');
+    return res.status(200).send(png);
+  } catch (error: any) {
+    return res.status(400).json({ success: false, error: `Could not generate barcode: ${error.message}` });
+  }
+});
+
+app.get('/api/color-preview', async (req, res) => {
+  const hex = String(req.query.hex || '').replace('#', '').trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return res.status(400).json({ success: false, error: 'hex must be a 6-char color code' });
+  }
+
+  const svg = `<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"640\" height=\"320\"><rect width=\"100%\" height=\"100%\" fill=\"#${hex}\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dominant-baseline=\"middle\" font-size=\"38\" font-family=\"Arial\" fill=\"#ffffff\">#${hex.toUpperCase()}</text></svg>`;
+  const png = await sharp(Buffer.from(svg)).png().toBuffer();
+  res.setHeader('Content-Type', 'image/png');
+  return res.status(200).send(png);
+});
+
+app.get('/api/stats-summary', (req, res) => {
+  res.json({ success: true, analytics: buildAnalyticsSummary() });
+});
+
+app.get('/api/backup', (req, res) => {
+  const payload = buildBackupPayload();
+  res.setHeader('Content-Disposition', `attachment; filename=\"tellity-backup-${Date.now()}.json\"`);
+  res.setHeader('Content-Type', 'application/json');
+  res.status(200).send(JSON.stringify(payload, null, 2));
+});
 
 // Text To Speech proxy endpoint
 app.get('/api/tts', async (req, res) => {
