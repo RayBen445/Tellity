@@ -83,6 +83,28 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Supabase Data Syncing Middleware
+app.use(async (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    try {
+      await db.load();
+    } catch (e) {
+      console.error('Middleware db.load error:', e);
+    }
+
+    const originalSend = res.send;
+    res.send = async function (body) {
+      try {
+        await db.save();
+      } catch (err) {
+        console.error('Middleware db.save error:', err);
+      }
+      return originalSend.call(this, body);
+    };
+  }
+  next();
+});
+
 // In-memory stable state
 let botToken: string = process.env.TELEGRAM_BOT_TOKEN || '';
 let botUsername: string | null = null;
@@ -648,7 +670,13 @@ async function runPollingIteration() {
     if (updates && Array.isArray(updates)) {
       for (const update of updates) {
         lastUpdateId = update.update_id;
-        await processTelegramUpdate(update, false);
+        try {
+          await db.load();
+          await processTelegramUpdate(update, false);
+          await db.save();
+        } catch (e) {
+          console.error('Polling database sync error:', e);
+        }
       }
     }
   } catch (err: any) {
@@ -680,10 +708,30 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
     }
   }
 
-  const userText = (isCallbackQuery ? (updateBody.callback_query?.data || '') : (message?.text || '')).trim();
+  const originalUserText = (isCallbackQuery ? (updateBody.callback_query?.data || '') : (message?.text || '')).trim();
+  let userText = originalUserText;
+
+  // Support slash-less matching of commands
+  if (userText && !userText.startsWith('/')) {
+    const firstWord = userText.split(/\s+/)[0].toLowerCase();
+    const knownCommands = [
+      'start', 'help', 'settings', 'poll', 'translate', 'calculate', 'weather', 'broadcast', 'echo', 
+      'reminder', 'image', 'time', 'date', 'status', 'ping', 'id', 'pdf', 'font', 'notepad',
+      'todo', 'habit', 'countdown', 'timer', 'stopwatch', 'calendar',
+      'qr', 'shorten', 'barcode', 'password', 'uuid', 'hash',
+      'mergepdf', 'splitpdf', 'compress', 'resize', 'convert', 'ocr',
+      'userinfo', 'chatinfo', 'admins', 'stats', 'invite', 'backup',
+      'vote', 'quiz', 'giveaway', 'leaderboard', 'suggest', 'feedback',
+      'json', 'base64', 'regex', 'timestamp', 'color',
+      'schedule', 'autodelete', 'sys_autodelete', 'autoreply', 'keywords', 'welcome', 'goodbye'
+    ];
+    if (knownCommands.includes(firstWord)) {
+      userText = '/' + userText;
+    }
+  }
 
   // Define a human readable preview descriptor
-  let logText = isCallbackQuery ? `🖱️ Clicked inline button: "${userText}"` : userText;
+  let logText = isCallbackQuery ? `🖱️ Clicked inline button: "${originalUserText}"` : originalUserText;
   if (!logText) {
     const keys = Object.keys(updateBody).filter(k => k !== 'update_id');
     logText = `[Telegram Event: ${keys.join(', ') || 'unknown payload'}]`;
@@ -1989,6 +2037,48 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
       }
     }
 
+    // Math auto-evaluation fallback check via npm mathguru
+    let evaluatedMathResult: any = null;
+    let isMathExpressionResult = false;
+
+    // A math expression must contain some digits, variables or operators, and not be too conversational
+    const hasMathSigns = /[\d+\-*/%^()=<>]/.test(userText) || /\b(sin|cos|tan|sqrt|pi|log|ln|abs|exp)\b/i.test(userText);
+    if (hasMathSigns && userText.trim().length > 0) {
+      try {
+        const result = mathguru.calc.evaluate(userText);
+        if (result !== undefined && result !== null && typeof result !== 'function' && typeof result !== 'object') {
+          evaluatedMathResult = result;
+          isMathExpressionResult = true;
+        }
+      } catch (err) {
+        // Not a valid mathematical expression
+      }
+    }
+
+    if (isMathExpressionResult) {
+      const mathReply = `🧮 *Mathematical calculation Successful*:\n\n• *Query*: \`${userText}\`\n• *Solution Outcome*:\n\n> *${evaluatedMathResult}*\n\n_Engine: MathGuru Native Parser Core_ 🔋`;
+      
+      addLog(
+        'outgoing',
+        chatId,
+        { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
+        mathReply,
+        `Successfully calculated expression: ${userText} without slash${isSimulated ? ' (Simulated)' : ''}`
+      );
+
+      if (!isSimulated && botToken) {
+        try {
+          await callTelegramAPI('sendMessage', {
+            chat_id: chatId,
+            text: mathReply,
+            parse_mode: 'Markdown',
+            reply_markup: getCommonInlineKeyboard()
+          });
+        } catch (e) {}
+      }
+      return;
+    }
+
     // Handle fallback trigger
     const fallbackReply = `Thanks for messaging me, ${fromUser.first_name || 'there'}! I loaded your message "${userText}", but I only understand commands registered in my control panel.\n\nTry sending \`/start\` to see if I am working properly! 🤖`;
     
@@ -2789,4 +2879,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

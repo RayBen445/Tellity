@@ -34,9 +34,55 @@ body {
 
 /* Glow effects */
 .glow-primary {
-  box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+  box-shadow: 0 0 25px rgba(99, 102, 241, 0.18);
 }
 .glow-success {
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.18);
+}
+.glow-premium {
+  box-shadow: 0 0 35px rgba(139, 92, 246, 0.22);
+}
+
+/* Elite Glassmorphism Utility */
+.glass-card {
+  background: rgba(14, 18, 26, 0.68) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(27, 34, 48, 0.65) !important;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Pulsing premium keyframe animation */
+@keyframes premium-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.35)) drop-shadow(0 0 2px rgba(168, 85, 247, 0.2));
+  }
+  50% {
+    filter: drop-shadow(0 0 16px rgba(99, 102, 241, 0.7)) drop-shadow(0 0 8px rgba(168, 85, 247, 0.45));
+  }
+}
+
+.pulse-premium {
+  animation: premium-glow 4s infinite ease-in-out;
+}
+
+/* Smooth active focus highlights */
+.input-premium {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.input-premium:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15) !important;
+}
+
+/* Custom interactive active links transition */
+.btn-hover-scale {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-hover-scale:hover {
+  transform: translateY(-1px) scale(1.01);
+}
+.btn-hover-scale:active {
+  transform: translateY(0.5px) scale(0.99);
 }
 

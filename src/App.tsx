@@ -688,7 +688,7 @@ export default function App() {
         <section className="lg:col-span-5 flex flex-col gap-6">
           
           {/* BOT IDENTITY & INTEGRATION MANAGER */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Settings className="w-4 h-4 text-indigo-400" />
@@ -888,7 +888,7 @@ export default function App() {
           </div>
 
           {/* PREMIUM CONFIGURATION PANEL */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Volume2 className="w-4 h-4 text-cyan-400" />
@@ -1039,7 +1039,7 @@ export default function App() {
           </div>
 
           {/* DYNAMIC COMMAND COMMANDS CONTROLLER */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40 flex-1 flex flex-col min-h-[380px]">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40 flex-1 flex flex-col min-h-[380px]">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Sliders className="w-4 h-4 text-violet-400" />
@@ -1205,7 +1205,7 @@ export default function App() {
         <section className="lg:col-span-7 flex flex-col gap-6">
           
           {/* BOT DEPLOYMENT SIMULATOR PANEL */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Play className="w-4 h-4 text-cyan-400" />
@@ -1351,7 +1351,7 @@ export default function App() {
           </div>
 
           {/* ACTIVE LOGSTREAM CONSOLE PANEL */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40 flex-1 flex flex-col min-h-[400px]">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40 flex-1 flex flex-col min-h-[400px]">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Terminal className="w-4 h-4 text-emerald-400" />
@@ -1591,7 +1591,7 @@ export default function App() {
           </div>
 
           {/* REMINDERS AND ALARMS HUB PANEL */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Bell className="w-4 h-4 text-purple-400" />
@@ -1788,7 +1788,7 @@ export default function App() {
           </div>
 
           {/* HIGH-CONTRAST CARD EXPORTER PANEL */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Image className="w-4 h-4 text-emerald-400" />
@@ -1898,7 +1898,7 @@ export default function App() {
           </div>
 
           {/* WORKSPACE NOTEBOOK MANAGER PANEL */}
-          <div className="bg-[#0e121a] border border-[#1b2230] rounded-2xl overflow-hidden shadow-xl shadow-black/40 mt-6">
+          <div className="glass-card rounded-2xl overflow-hidden shadow-xl shadow-black/40 mt-6">
             <div className="px-5 py-4 border-b border-[#1b2230] bg-[#121722]/50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Notebook className="w-4 h-4 text-cyan-400" />
