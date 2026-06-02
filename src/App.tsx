@@ -57,6 +57,11 @@ export default function App() {
   const [logs, setLogs] = useState<MessageLog[]>([]);
   const [activeTab, setActiveTab] = useState<'console' | 'commands' | 'diagnostics'>('console');
 
+  // Custom alerts and reminder templates
+  const [reminderTemplate, setReminderTemplate] = useState('🔔 *REMINDER ALERT FOR {first_name}*! 🕰️\n\n> "{message}"\n\nScheduled at {time} • Fired successfully 🔋');
+  const [isEditingReminderTemplate, setIsEditingReminderTemplate] = useState(false);
+  const [tempReminderTemplate, setTempReminderTemplate] = useState('');
+
   // Loading and action state
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -324,6 +329,9 @@ export default function App() {
         if (data.config.targetChatId) {
           setUserIdInput(data.config.targetChatId);
         }
+        if (data.config.reminderTemplate) {
+          setReminderTemplate(data.config.reminderTemplate);
+        }
       }
       if (data.appUrl) {
         setAppUrl(data.appUrl);
@@ -393,6 +401,34 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error submitting bot update:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSaveReminderTemplate = async (newVal: string) => {
+    setActionLoading(true);
+    try {
+      const payload = {
+        commands: botConfig.commands,
+        targetChatId: userIdInput,
+        reminderTemplate: newVal
+      };
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.config) {
+        setBotConfig(data.config);
+      }
+      if (data.reminderTemplate) {
+        setReminderTemplate(data.reminderTemplate);
+      }
+      setIsEditingReminderTemplate(false);
+    } catch (err) {
+      console.error('Failed to save reminder template:', err);
     } finally {
       setActionLoading(false);
     }
@@ -1676,6 +1712,75 @@ export default function App() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+
+              {/* REMINDERS TEXT TEMPLATE CUSTOMIZER */}
+              <div className="mt-4 pt-4 border-t border-gray-800/60">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Admin: Alert Message Template</span>
+                  </div>
+                  {isEditingReminderTemplate ? (
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => handleSaveReminderTemplate(tempReminderTemplate)}
+                        disabled={actionLoading}
+                        className="px-2 py-1 bg-purple-700 hover:bg-purple-600 disabled:bg-purple-900 text-white font-semibold text-[10px] rounded transition"
+                      >
+                        {actionLoading ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => setIsEditingReminderTemplate(false)}
+                        className="px-2 py-1 bg-gray-800 hover:bg-gray-850 text-gray-400 text-[10px] rounded transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setTempReminderTemplate(reminderTemplate);
+                        setIsEditingReminderTemplate(true);
+                      }}
+                      className="text-[10px] text-purple-450 hover:text-purple-300 underline font-mono font-bold"
+                    >
+                      [Customise Alert template]
+                    </button>
+                  )}
+                </div>
+
+                {isEditingReminderTemplate ? (
+                  <div className="flex flex-col gap-1.5">
+                    <textarea
+                      value={tempReminderTemplate}
+                      onChange={(e) => setTempReminderTemplate(e.target.value)}
+                      rows={3}
+                      className="w-full bg-[#090b0e] border border-purple-900/60 focus:border-purple-500 rounded-lg py-1.5 px-3 text-xs font-mono text-white focus:outline-none resize-none"
+                    />
+                    <div className="flex flex-wrap gap-1">
+                      {['{first_name}', '{message}', '{time}'].map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setTempReminderTemplate(prev => prev + tag)}
+                          className="px-1.5 py-0.5 bg-[#090b0e] border border-gray-850 text-[9px] font-mono text-purple-300 hover:border-purple-600 rounded transition"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-black/45 rounded-xl border border-gray-900/80 flex flex-col gap-1">
+                    <pre className="text-[10px] font-mono text-gray-350 whitespace-pre-wrap leading-normal">
+                      {reminderTemplate}
+                    </pre>
+                    <span className="text-[9px] text-gray-500 leading-normal mt-1 block">
+                      💡 Supports dynamic tags: <strong>{'{first_name}'}</strong>, <strong>{'{message}'}</strong>, and <strong>{'{time}'}</strong>. Standard Markdown parses cleanly.
+                    </span>
                   </div>
                 )}
               </div>

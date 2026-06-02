@@ -5,6 +5,75 @@ import { createServer as createViteServer } from 'vite';
 import { BotConfig, BotCommandConfig, MessageLog } from './src/types.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as mathguru from 'mathguru';
+import { handlePoll } from './commands/poll.js';
+import { handleCalculate } from './commands/calculate.js';
+import { handleNotepad } from './commands/notepad.js';
+import { CommandContext } from './commands/types.js';
+
+// Premium Modular Plugin Command Imports
+import {
+  handleTodo,
+  handleHabit,
+  handleCountdown,
+  handleTimer,
+  handleStopwatch,
+  handleCalendar
+} from './commands/productivity.js';
+
+import {
+  handleQr,
+  handleShorten,
+  handleBarcode,
+  handlePassword,
+  handleUuid,
+  handleHash
+} from './commands/utilities.js';
+
+import {
+  handleMergePdf,
+  handleSplitPdf,
+  handleCompress,
+  handleResize,
+  handleConvert,
+  handleOcr
+} from './commands/filetools.js';
+
+import {
+  handleUserInfo,
+  handleChatInfo,
+  handleAdmins,
+  handleStats,
+  handleInvite,
+  handleBackup
+} from './commands/telefeatures.js';
+
+import {
+  handleVote,
+  handleQuiz,
+  handleGiveaway,
+  handleLeaderboard,
+  handleSuggest,
+  handleFeedback
+} from './commands/community.js';
+
+import {
+  handleJson,
+  handleBase64,
+  handleRegex,
+  handleTimestamp,
+  handleColor
+} from './commands/devtools.js';
+
+import {
+  handleSchedule,
+  handleAutoDelete,
+  handleAutoReply,
+  handleKeywords,
+  handleWelcome,
+  handleGoodbye
+} from './commands/automation.js';
+
+import { db } from './src/db.js';
 
 // Setup basic environment variables support
 import 'dotenv/config';
@@ -21,6 +90,7 @@ let botName: string | null = null;
 let isWebhookActive = false;
 let webhookUrl: string | null = null;
 let targetChatId: string | null = null;
+let reminderTemplate = '🔔 *REMINDER ALERT FOR {first_name}*! 🕰️\n\n> "{message}"\n\nScheduled at {time} • Fired successfully 🔋';
 
 let userLanguages: Record<number, string> = {};
 let knownUsers: Record<string, { id: number; firstName: string; lastName: string }> = {};
@@ -207,7 +277,7 @@ let botCommands: BotCommandConfig[] = [
   {
     command: '/start',
     description: 'The standard greeting command',
-    responseTemplate: '{greeting} {first_name}! 👋\n\nWelcome to your Custom Telegram Bot! This is a real-time, premium command response to your `/start` trigger.\n\nHere are some commands you can test:\n• `/start` - Launch or reset this bot\n• `/help` - View bot instructions\n• `/settings` - Set a preferred response language\n• `/echo <text>` - Reply back with the same exact text\n• `/reminder <time> <msg>` - Set a background reminder alarm\n• `/image <text>` - Export text as a gorgeous vector gradient card\n• `/time` - Get system clock time\n• `/time <location>` - View local time in standard cities\n• `/date` - Show the current date\n• `/status` - Audit integration health\n• `/ping` - Check connection speed diagnostics\n• `/id` - Check your user ID or look up another user\'s ID\n\nYou can configure more dynamic command triggers and responses in your Google AI Studio dashboard! ✨'
+    responseTemplate: '{greeting} {first_name}! 👋\n\nWelcome to your Custom Telegram Bot! This is a real-time, premium command response to your `/start` trigger.\n\nHere are some commands you can test:\n• `/start` - Launch or reset this bot\n• `/help` - View bot instructions\n• `/settings` - Set a preferred response language\n• `/echo <text>` - Reply back with the same exact text\n• `/time` - Get system clock time\n• `/time <location>` - View local time in standard cities\n• `/date` - Show the current date\n• `/status` - Audit integration health\n• `/ping` - Check connection speed diagnostics\n• `/id` - Check your user ID or look up another user\'s ID'
   },
   {
     command: '/help',
@@ -340,6 +410,19 @@ function addLog(direction: 'incoming' | 'outgoing', chatId: number, sender: any,
   if (messageLogs.length > 100) {
     messageLogs = messageLogs.slice(0, 100);
   }
+
+  // Simulated Auto-delete tracking
+  if (direction === 'outgoing') {
+    try {
+      const activeChatId = chatId.toString();
+      const secondsVal = db.getData().autodeleteSettings[activeChatId];
+      if (secondsVal && secondsVal > 0) {
+        setTimeout(() => {
+          messageLogs = messageLogs.filter(log => log.id !== newLog.id);
+        }, secondsVal * 1000);
+      }
+    } catch (e) {}
+  }
 }
 
 // Function to call Telegram API safely
@@ -368,7 +451,29 @@ async function callTelegramAPI(method: string, body: any, customToken?: string) 
     if (!data.ok) {
       throw new Error(data.description || `Telegram API error: ${response.statusText}`);
     }
-    return data.result;
+
+    // Real-world Telegram Auto-delete tracking
+    const result = data.result;
+    if (result && result.message_id && result.chat && result.chat.id) {
+      const activeChatId = result.chat.id.toString();
+      try {
+        const secondsVal = db.getData().autodeleteSettings[activeChatId];
+        if (secondsVal && secondsVal > 0) {
+          setTimeout(async () => {
+            try {
+              await callTelegramAPI('deleteMessage', {
+                chat_id: activeChatId,
+                message_id: result.message_id
+              }, token);
+            } catch (delErr: any) {
+              console.error(`AutoDelete API failure for message_id ${result.message_id}:`, delErr.message);
+            }
+          }, secondsVal * 1000);
+        }
+      } catch (e) {}
+    }
+
+    return result;
   } catch (error: any) {
     console.error(`Telegram API Error [${method}]:`, error.message);
     throw error;
@@ -1045,88 +1150,81 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
     return;
   }
 
+  const cmdCtx: CommandContext = {
+    userText,
+    lowerText,
+    chatId,
+    fromUser,
+    isSimulated,
+    botUsername,
+    botName,
+    botToken,
+    addLog,
+    callTelegramAPI,
+    getCommonInlineKeyboard
+  };
+
   // Custom command handler: /poll
-  if (lowerText.startsWith('/poll ') || lowerText.startsWith('/poll@') || lowerText === '/poll') {
-    const parts = userText.split(/\s+/);
-    if (parts.length > 1) {
-      const remainingArgs = userText.substring(userText.indexOf(parts[1])).trim();
-      let seconds = 60;
-      let pollContent = remainingArgs;
-
-      const firstWord = parts[1];
-      const match = firstWord.match(/^(\d+)(s|m|h)?$/i);
-      if (match) {
-        const value = parseInt(match[1], 10);
-        const unit = (match[2] || 's').toLowerCase();
-        if (unit === 's') seconds = value;
-        else if (unit === 'm') seconds = value * 60;
-        else if (unit === 'h') seconds = value * 3600;
-        
-        pollContent = remainingArgs.substring(firstWord.length).trim();
-      }
-
-      const pollParts = pollContent.split('|').map(x => x.trim()).filter(Boolean);
-      if (pollParts.length >= 3) {
-        const question = pollParts[0];
-        const options = pollParts.slice(1);
-
-        const pollMessage = `📊 *Dynamic Sandbox Poll Started!* 🗳️\n\n*Question*: "${question}"\n\n` +
-          options.map((opt, idx) => `  *Option ${idx+1}*: ${opt}`).join('\n') +
-          `\n\n_Active Timer countdown: \`${seconds}s\`._\n_This poll is fully integrated live inside Telegram!_`;
-
-        addLog(
-          'outgoing',
-          chatId,
-          { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-          pollMessage,
-          `Poll started: "${question}" with ${options.length} options for ${seconds}s${isSimulated ? ' (Simulated)' : ''}`
-        );
-
-        if (!isSimulated && botToken) {
-          try {
-            await callTelegramAPI('sendPoll', {
-              chat_id: chatId,
-              question: question,
-              options: JSON.stringify(options),
-              is_anonymous: false
-            });
-          } catch (err: any) {
-            console.error('Error sending Telegram poll API call, falling back to message:', err);
-            try {
-              await callTelegramAPI('sendMessage', {
-                chat_id: chatId,
-                text: pollMessage,
-                parse_mode: 'Markdown',
-                reply_markup: getCommonInlineKeyboard()
-              });
-            } catch (fallbackErr) {}
-          }
-        }
-        return;
-      }
-    }
-
-    const helpReply = `📊 *How to schedule an Interactive Poll*:\n\nFormat:\n\`/poll <optional_seconds> <question>|<opt1>|<opt2>...\`\n\n*Example*:\n• \`/poll 30 Which theme is best?|Midnight Neon|Emerald Magic|Sunrise Glow\`\n\n_Sends a native interactive Telegram poll directly into your chat!_`;
-    addLog(
-      'outgoing',
-      chatId,
-      { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-      helpReply,
-      `Sent poll instructions${isSimulated ? ' (Simulated)' : ''}`
-    );
-
-    if (!isSimulated && botToken) {
-      try {
-        await callTelegramAPI('sendMessage', {
-          chat_id: chatId,
-          text: helpReply,
-          parse_mode: 'Markdown',
-          reply_markup: getCommonInlineKeyboard()
-        });
-      } catch (e) {}
-    }
+  if (await handlePoll(cmdCtx)) {
     return;
   }
+
+  // --- PREMIUM SYSTEM PLUGINS REGISTRATION ---
+  
+  // 1. Productivity Module Commands (/todo, /habit, /countdown, /timer, /stopwatch, /calendar)
+  if (await handleTodo(cmdCtx)) return;
+  if (await handleHabit(cmdCtx)) return;
+  if (await handleCountdown(cmdCtx)) return;
+  if (await handleTimer(cmdCtx)) return;
+  if (await handleStopwatch(cmdCtx)) return;
+  if (await handleCalendar(cmdCtx)) return;
+
+  // 2. Utility Module Commands (/qr, /shorten, /barcode, /password, /uuid, /hash)
+  if (await handleQr(cmdCtx)) return;
+  if (await handleShorten(cmdCtx)) return;
+  if (await handleBarcode(cmdCtx)) return;
+  if (await handlePassword(cmdCtx)) return;
+  if (await handleUuid(cmdCtx)) return;
+  if (await handleHash(cmdCtx)) return;
+
+  // 3. Filetools Module Commands (/mergepdf, /splitpdf, /compress, /resize, /convert, /ocr)
+  if (await handleMergePdf(cmdCtx)) return;
+  if (await handleSplitPdf(cmdCtx)) return;
+  if (await handleCompress(cmdCtx)) return;
+  if (await handleResize(cmdCtx)) return;
+  if (await handleConvert(cmdCtx)) return;
+  if (await handleOcr(cmdCtx)) return;
+
+  // 4. Telefeatures Module Commands (/userinfo, /chatinfo, /admins, /stats, /invite, /backup)
+  if (await handleUserInfo(cmdCtx)) return;
+  if (await handleChatInfo(cmdCtx)) return;
+  if (await handleAdmins(cmdCtx)) return;
+  if (await handleStats(cmdCtx)) return;
+  if (await handleInvite(cmdCtx)) return;
+  if (await handleBackup(cmdCtx)) return;
+
+  // 5. Community Module Commands (/vote, /quiz, /giveaway, /leaderboard, /suggest, /feedback)
+  if (await handleVote(cmdCtx)) return;
+  if (await handleQuiz(cmdCtx)) return;
+  if (await handleGiveaway(cmdCtx)) return;
+  if (await handleLeaderboard(cmdCtx)) return;
+  if (await handleSuggest(cmdCtx)) return;
+  if (await handleFeedback(cmdCtx)) return;
+
+  // 6. Devtools Module Commands (/json, /base64, /regex, /timestamp, /color)
+  if (await handleJson(cmdCtx)) return;
+  if (await handleBase64(cmdCtx)) return;
+  if (await handleRegex(cmdCtx)) return;
+  if (await handleTimestamp(cmdCtx)) return;
+  if (await handleColor(cmdCtx)) return;
+
+  // 7. Automation Module Commands (/schedule, /autodelete, /autoreply, /keywords, /welcome, /goodbye)
+  if (await handleSchedule(cmdCtx)) return;
+  if (await handleAutoDelete(cmdCtx)) return;
+  if (await handleAutoReply(cmdCtx)) return;
+  if (await handleKeywords(cmdCtx)) return;
+  if (await handleWelcome(cmdCtx)) return;
+  if (await handleGoodbye(cmdCtx)) return;
 
   // Custom command handler: /translate
   if (lowerText.startsWith('/translate ') || lowerText.startsWith('/translate@') || lowerText === '/translate') {
@@ -1188,121 +1286,7 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
   }
 
   // Custom command handler: /calculate
-  if (lowerText.startsWith('/calculate ') || lowerText.startsWith('/calculate@') || lowerText === '/calculate') {
-    const parts = userText.split(/\s+/);
-    if (parts.length > 1) {
-      const expression = userText.substring(userText.indexOf(parts[1])).trim();
-      let resultMsg = '';
-      
-      try {
-        if (expression.toLowerCase().startsWith('plot ') || expression.toLowerCase().startsWith('graph ')) {
-          const functionStr = expression.substring(5).trim();
-          const asciiGraph = mathguru.graph.plot(functionStr, { size: '40x12' });
-          resultMsg = `📈 *Advanced Math Plot Grid*:\n\n• *Function*: \`${functionStr}\`\n• *Plot Output*:\n\n\`\`\`\n${asciiGraph}\n\`\`\`\n\n_Rendered dynamically using MathGuru Sandbox Graphics!_ ⚡`;
-        } else if (expression.toLowerCase() === 'list' || expression.toLowerCase() === 'formulas') {
-          const list = mathguru.formulas.list().slice(0, 8);
-          resultMsg = `🧮 *MathGuru Built-in Formulas Register*:\n\n` + 
-            list.map(f => `• *${f.name}* (${f.category}): \`${f.formula}\`\n  _${f.description}_`).join('\n\n') +
-            `\n\n_Type \`/calculate explain <name>\` to parse derivation step sequences!_ 🧪`;
-        } else if (expression.toLowerCase().startsWith('explain ')) {
-          const searchArg = expression.substring(8).trim();
-          const explanation = mathguru.formulas.explain(searchArg);
-          resultMsg = `🧪 *Diagnostic Formula Derivation*:\n\n${explanation}\n\n_Analyzed using MathGuru Analytical Engines!_`;
-        } else {
-          // Standard mathematical calculation
-          const calculated = mathguru.calc.evaluate(expression);
-          resultMsg = `🧮 *Mathematical calculation Successful*:\n\n• *Query*: \`${expression}\`\n• *Solution Outcome*:\n\n> *${calculated}*\n\n_Engine: MathGuru Native Parser Core_ 🔋`;
-        }
-
-        addLog(
-          'outgoing',
-          chatId,
-          { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-          resultMsg,
-          `Successfully calculated expression: ${expression}${isSimulated ? ' (Simulated)' : ''}`
-        );
-
-        if (!isSimulated && botToken) {
-          try {
-            await callTelegramAPI('sendMessage', {
-              chat_id: chatId,
-              text: resultMsg,
-              parse_mode: 'Markdown',
-              reply_markup: getCommonInlineKeyboard()
-            });
-          } catch (e) {}
-        }
-        return;
-      } catch (err: any) {
-        console.warn('MathGuru compilation failure, falling back to basic calculator:', err.message);
-        const safeExpr = expression.replace(/[^0-9+\-*/%().\s^]/g, '').replace(/\^/g, '**');
-        if (safeExpr) {
-          try {
-            const result = new Function(`return (${safeExpr})`)();
-            if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
-              const fallbackMsg = `🧮 *Calculation (Basic Fallback)*:\n\n• *Expression*: \`${expression}\`\n• *Result*: *${result}*\n• *Status*: Basic Local Engine fallback`;
-              addLog(
-                'outgoing',
-                chatId,
-                { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-                fallbackMsg,
-                `Calculated basic expression step as fallback${isSimulated ? ' (Simulated)' : ''}`
-              );
-
-              if (!isSimulated && botToken) {
-                try {
-                  await callTelegramAPI('sendMessage', {
-                    chat_id: chatId,
-                    text: fallbackMsg,
-                    parse_mode: 'Markdown'
-                  });
-                } catch (e) {}
-              }
-              return;
-            }
-          } catch (basicErr) {}
-        }
-      }
-
-      const errMsg = `⚠ *Calculation Failed*:\n\nCould not evaluate expression: \`${expression}\`.\nPlease double check formula layout and parameters.`;
-      addLog(
-        'outgoing',
-        chatId,
-        { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-        errMsg,
-        `Failed to calculate: ${expression}${isSimulated ? ' (Simulated)' : ''}`
-      );
-      if (!isSimulated && botToken) {
-        try {
-          await callTelegramAPI('sendMessage', {
-            chat_id: chatId,
-            text: errMsg,
-            parse_mode: 'Markdown'
-          });
-        } catch (e) {}
-      }
-      return;
-    }
-
-    const helpReply = `🧮 *How to use Sandbox Calculator*:\n\nFormat:\n\`/calculate <mathematical expression>\`\n\n*Examples*:\n• \`/calculate 12 * (45 - 20) / 5\`\n• \`/calculate plot sin(x)\` _(Plots math graphs!)_\n• \`/calculate formulas\` _(Lists custom recipes)_`;
-    addLog(
-      'outgoing',
-      chatId,
-      { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-      helpReply,
-      `Sent calculator instructions${isSimulated ? ' (Simulated)' : ''}`
-    );
-
-    if (!isSimulated && botToken) {
-      try {
-        await callTelegramAPI('sendMessage', {
-          chat_id: chatId,
-          text: helpReply,
-          parse_mode: 'Markdown',
-          reply_markup: getCommonInlineKeyboard()
-        });
-      } catch (e) {}
-    }
+  if (await handleCalculate(cmdCtx)) {
     return;
   }
 
@@ -1452,192 +1436,7 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
   }
 
   // Custom command handler: /notepad
-  if (lowerText.startsWith('/notepad ') || lowerText.startsWith('/notepad@') || lowerText === '/notepad') {
-    const parts = userText.split(/\s+/);
-    const notes = getNotepadForSession(chatId);
-
-    if (parts.length > 1) {
-      const subCommand = parts[1].toLowerCase();
-
-      if (subCommand === 'new' || subCommand === 'add' || subCommand === 'create') {
-        const content = parts.slice(2).join(' ').trim();
-        if (content) {
-          const newId = notes.length > 0 ? Math.max(...notes.map(n => n.id)) + 1 : 1;
-          const newNote: NotepadItem = {
-            id: newId,
-            content,
-            timestamp: new Date().toISOString()
-          };
-          notes.push(newNote);
-
-          const successMsg = `📓 *Notepad item Added successfully*:\n\n• *ID*: \`${newId}\`\n• *Content*: "${content}"\n• *Timestamp*: \`${new Date().toLocaleTimeString()}\`\n\n_Your notes are fully persistent across live simulated and physical Telegram environments!_ 🔋`;
-          addLog(
-            'outgoing',
-            chatId,
-            { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-            successMsg,
-            `Created notepad item ID ${newId}${isSimulated ? ' (Simulated)' : ''}`
-          );
-
-          if (!isSimulated && botToken) {
-            try {
-              await callTelegramAPI('sendMessage', {
-                chat_id: chatId,
-                text: successMsg,
-                parse_mode: 'Markdown',
-                reply_markup: getCommonInlineKeyboard()
-              });
-            } catch (e) {}
-          }
-          return;
-        }
-      } else if (subCommand === 'list') {
-        let listMsg = `📓 *Your Shared Workspace Notepad*:\n\n`;
-        if (notes.length === 0) {
-          listMsg += `_Your notebook is completely empty._\n\nType \`/notepad new <content>\` to pin your first item!`;
-        } else {
-          listMsg += notes.map(n => `• *[ID: ${n.id}]* — ${n.content}\n  _Created: ${new Date(n.timestamp).toLocaleTimeString()}_`).join('\n\n');
-        }
-
-        addLog(
-          'outgoing',
-          chatId,
-          { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-          listMsg,
-          `Listed notepad entries for chat ${chatId}${isSimulated ? ' (Simulated)' : ''}`
-        );
-
-        if (!isSimulated && botToken) {
-          try {
-            await callTelegramAPI('sendMessage', {
-              chat_id: chatId,
-              text: listMsg,
-              parse_mode: 'Markdown',
-              reply_markup: getCommonInlineKeyboard()
-            });
-          } catch (e) {}
-        }
-        return;
-      } else if (subCommand === 'edit') {
-        const idArg = parseInt(parts[2], 10);
-        const newContent = parts.slice(3).join(' ').trim();
-
-        if (!isNaN(idArg) && newContent) {
-          const matchedNote = notes.find(n => n.id === idArg);
-          if (matchedNote) {
-            matchedNote.content = newContent;
-            matchedNote.timestamp = new Date().toISOString();
-
-            const successMsg = `📓 *Notepad item ${idArg} Updated Successfully*:\n\n• *New Content*: "${newContent}"\n• *Updated at*: \`${new Date().toLocaleTimeString()}\``;
-            addLog(
-              'outgoing',
-              chatId,
-              { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-              successMsg,
-              `Updated notepad item ID ${idArg}${isSimulated ? ' (Simulated)' : ''}`
-            );
-
-            if (!isSimulated && botToken) {
-              try {
-                await callTelegramAPI('sendMessage', {
-                  chat_id: chatId,
-                  text: successMsg,
-                  parse_mode: 'Markdown',
-                  reply_markup: getCommonInlineKeyboard()
-                });
-              } catch (e) {}
-            }
-            return;
-          }
-        }
-      } else if (subCommand === 'delete' || subCommand === 'remove') {
-        const idArg = parseInt(parts[2], 10);
-        if (!isNaN(idArg)) {
-          const initialLength = notes.length;
-          const filtered = notes.filter(n => n.id !== idArg);
-          userNotepads[chatId] = filtered;
-
-          if (filtered.length < initialLength) {
-            const successMsg = `📓 *Notepad item ${idArg} Deleted Successfully*!`;
-            addLog(
-              'outgoing',
-              chatId,
-              { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-              successMsg,
-              `Deleted notepad item ID ${idArg}${isSimulated ? ' (Simulated)' : ''}`
-            );
-
-            if (!isSimulated && botToken) {
-              try {
-                await callTelegramAPI('sendMessage', {
-                  chat_id: chatId,
-                  text: successMsg,
-                  parse_mode: 'Markdown',
-                  reply_markup: getCommonInlineKeyboard()
-                });
-              } catch (e) {}
-            }
-            return;
-          }
-        }
-      } else if (subCommand === 'clear') {
-        userNotepads[chatId] = [];
-        const successMsg = `📓 *Notepad Cleared Entirely*!`;
-        addLog(
-          'outgoing',
-          chatId,
-          { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-          successMsg,
-          `Cleared notebook for chat ${chatId}${isSimulated ? ' (Simulated)' : ''}`
-        );
-
-        if (!isSimulated && botToken) {
-          try {
-            await callTelegramAPI('sendMessage', {
-              chat_id: chatId,
-              text: successMsg,
-              parse_mode: 'Markdown',
-              reply_markup: getCommonInlineKeyboard()
-            });
-          } catch (e) {}
-        }
-        return;
-      }
-    }
-
-    let defaultMsg = `📓 *How to interact with Notebook Manager*:\n\n` +
-      `• \`/notepad list\` — Display all currently indexed notes\n` +
-      `• \`/notepad new <text>\` — Log a new fast entry\n` +
-      `• \`/notepad edit <id> <text>\` — Update an item content\n` +
-      `• \`/notepad delete <id>\` — Delete a selected item\n` +
-      `• \`/notepad clear\` — Empty your database logs\n\n`;
-
-    if (notes.length > 0) {
-      defaultMsg += `*Quick peek of active notes (${notes.length} saved)*:\n` +
-        notes.slice(0, 3).map(n => `  • \`[ID: ${n.id}]\` ${n.content.substring(0, 45)}`).join('\n') +
-        `\n_Check the complete ledger with \`/notepad list\`_`;
-    } else {
-      defaultMsg += `_Your notepad database is currently empty._`;
-    }
-
-    addLog(
-      'outgoing',
-      chatId,
-      { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
-      defaultMsg,
-      `Sent notepad helper guide${isSimulated ? ' (Simulated)' : ''}`
-    );
-
-    if (!isSimulated && botToken) {
-      try {
-        await callTelegramAPI('sendMessage', {
-          chat_id: chatId,
-          text: defaultMsg,
-          parse_mode: 'Markdown',
-          reply_markup: getCommonInlineKeyboard()
-        });
-      } catch (e) {}
-    }
+  if (await handleNotepad(cmdCtx, getNotepadForSession(chatId))) {
     return;
   }
 
@@ -2131,6 +1930,65 @@ async function processTelegramUpdate(updateBody: any, isSimulated = false) {
       }
     }
 
+    // 📑 KEYWORD AUTOMATION AND AUTO-REPLY INTERCEPTION
+    const currentKeywords = db.getData().keywords;
+    let keywordHandled = false;
+    for (const kw of Object.keys(currentKeywords)) {
+      if (lowerText.includes(kw.toLowerCase())) {
+        currentKeywords[kw].count++;
+        db.save();
+        
+        const actionText = `📑 *Phrase Keyword Trigger Hit!* 📊\n\n• *Matched Phrase*: \`${kw}\`\n• *Automated System Action*: "${currentKeywords[kw].action}"`;
+        addLog(
+          'outgoing',
+          chatId,
+          { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
+          actionText,
+          `Triggered keyword automation for '${kw}'${isSimulated ? ' (Simulated)' : ''}`
+        );
+
+        if (!isSimulated && botToken) {
+          try {
+            await callTelegramAPI('sendMessage', {
+              chat_id: chatId,
+              text: actionText,
+              parse_mode: 'Markdown',
+              reply_markup: getCommonInlineKeyboard()
+            });
+          } catch (e) {}
+        }
+        keywordHandled = true;
+        return;
+      }
+    }
+
+    if (!keywordHandled) {
+      const currentReplies = db.getData().autoReplies;
+      const matchedReplyRule = currentReplies.find(rule => lowerText.includes(rule.trigger.toLowerCase()));
+      if (matchedReplyRule) {
+        const replyText = `🤖 *Keyword Auto-Reply Match*:\n\n${matchedReplyRule.reply}`;
+        addLog(
+          'outgoing',
+          chatId,
+          { id: 0, username: botUsername?.replace('@', '') || 'Bot', first_name: botName || 'Bot' },
+          replyText,
+          `Triggered auto-reply for '${matchedReplyRule.trigger}'${isSimulated ? ' (Simulated)' : ''}`
+        );
+
+        if (!isSimulated && botToken) {
+          try {
+            await callTelegramAPI('sendMessage', {
+              chat_id: chatId,
+              text: replyText,
+              parse_mode: 'Markdown',
+              reply_markup: getCommonInlineKeyboard()
+            });
+          } catch (e) {}
+        }
+        return;
+      }
+    }
+
     // Handle fallback trigger
     const fallbackReply = `Thanks for messaging me, ${fromUser.first_name || 'there'}! I loaded your message "${userText}", but I only understand commands registered in my control panel.\n\nTry sending \`/start\` to see if I am working properly! 🤖`;
     
@@ -2278,7 +2136,8 @@ app.get('/api/config', async (req, res) => {
       isWebhookActive,
       commands: botCommands,
       longPollingActive,
-      targetChatId
+      targetChatId,
+      reminderTemplate
     },
     appUrl: process.env.APP_URL || ''
   });
@@ -2302,7 +2161,7 @@ app.post('/api/polling', async (req, res) => {
 
 // Configure bot parameters securely
 app.post('/api/config', async (req, res) => {
-  const { token, commands, targetChatId: targetIdParam } = req.body;
+  const { token, commands, targetChatId: targetIdParam, reminderTemplate: reminderTemplateParam } = req.body;
   
   if (commands && Array.isArray(commands)) {
     botCommands = commands;
@@ -2310,6 +2169,10 @@ app.post('/api/config', async (req, res) => {
 
   if (targetIdParam !== undefined) {
     targetChatId = targetIdParam || null;
+  }
+
+  if (reminderTemplateParam !== undefined) {
+    reminderTemplate = reminderTemplateParam;
   }
 
   let connectionSuccess = false;
@@ -2355,7 +2218,8 @@ app.post('/api/config', async (req, res) => {
     webhookUrl,
     commands: botCommands,
     longPollingActive,
-    targetChatId
+    targetChatId,
+    reminderTemplate
   });
 });
 
@@ -2874,7 +2738,11 @@ setInterval(async () => {
     if (!rem.triggered && rem.dueTime <= now) {
       rem.triggered = true;
       
-      const alertMsg = `🔔 *REMINDER ALERT FOR ${rem.fromUser.first_name.toUpperCase()}*! 🕰️\n\n> "${rem.message}"\n\n_Scheduled at ${new Date(rem.createdAt).toLocaleTimeString()} • Fired successfully_ 🔋`;
+      const formattedTime = new Date(rem.createdAt).toLocaleTimeString();
+      const alertMsg = reminderTemplate
+        .replace(/{first_name}/g, rem.fromUser.first_name.toUpperCase())
+        .replace(/{message}/g, rem.message)
+        .replace(/{time}/g, formattedTime);
       
       addLog(
         'outgoing',
